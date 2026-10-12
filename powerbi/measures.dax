@@ -1,0 +1,416 @@
+// =====================================================================
+// Olist e-commerce KPI model - all DAX measures
+// Create a table called _Measures (Home > Enter data > name it _Measures > Load),
+// then for each block: right-click _Measures > New measure > paste the block.
+// The format string and display folder go in Measure tools / the Properties pane.
+// Faster option: see measures_query_view.dax (adds all measures in one click).
+// =====================================================================
+
+
+// ---------------------------------------------------------------- 1 Sales
+
+// Format: "R$" #,0   Folder: 1 Sales
+// Sum of item prices on orders that were not canceled or unavailable. Excludes freight.
+Revenue = SUM ( FactOrderItems[Price] )
+
+// Format: "R$" #,0   Folder: 1 Sales
+// Sum of freight charged to customers.
+Freight Revenue = SUM ( FactOrderItems[Freight] )
+
+// Format: "R$" #,0   Folder: 1 Sales
+// Gross merchandise value: everything the customer paid for products and freight.
+GMV = [Revenue] + [Freight Revenue]
+
+// Format: #,0   Folder: 1 Sales
+// Number of distinct orders with at least one sold item.
+Orders = DISTINCTCOUNT ( FactOrderItems[OrderKey] )
+
+// Format: #,0   Folder: 1 Sales
+// Number of order lines.
+Items Sold = COUNTROWS ( FactOrderItems )
+
+// Format: "R$" #,0.00   Folder: 1 Sales
+// Revenue / Orders.
+Avg Order Value = DIVIDE ( [Revenue], [Orders] )
+
+// Format: 0.00   Folder: 1 Sales
+// Items Sold / Orders.
+Items per Order = DIVIDE ( [Items Sold], [Orders] )
+
+// Format: 0.0%   Folder: 1 Sales
+// Freight Revenue / Revenue.
+Freight % of Revenue = DIVIDE ( [Freight Revenue], [Revenue] )
+
+// Format: #,0   Folder: 1 Sales
+// Distinct customers (real people, customer_unique_id) who bought in the period.
+Active Customers = DISTINCTCOUNT ( FactOrderItems[CustomerKey] )
+
+// Format: #,0   Folder: 1 Sales
+// Distinct sellers with at least one sale in the period.
+Active Sellers = DISTINCTCOUNT ( FactOrderItems[SellerKey] )
+
+// Format: "R$" #,0.00   Folder: 1 Sales
+// Revenue / Active Customers.
+Revenue per Customer = DIVIDE ( [Revenue], [Active Customers] )
+
+
+// ---------------------------------------------------------------- 2 Time intelligence
+
+// Format: yyyy-mm-dd   Folder: 2 Time intelligence
+// Last day of the data (31 Aug 2018), regardless of filters. Read from FactOrders because the last two days only have canceled orders.
+Last Data Date =
+    -- FactOrders also contains canceled orders, so its last date is the true end of the data (31 Aug 2018).
+    -- FactOrderItems stops on 29 Aug because the orders of 30-31 Aug were all canceled.
+    CALCULATE ( MAX ( FactOrders[OrderDate] ), REMOVEFILTERS () )
+
+// Format: "R$" #,0   Folder: 2 Time intelligence
+// Revenue in the same period one year earlier (like-for-like).
+Revenue PY =
+    -- Same period last year, cut at the last date with data, so Jan-Aug 2018
+    -- is compared with Jan-Aug 2017 rather than the whole of 2017.
+    VAR Cutoff = EDATE ( [Last Data Date], -12 )
+    RETURN
+        CALCULATE (
+            [Revenue],
+            SAMEPERIODLASTYEAR ( DimDate[Date] ),
+            DimDate[Date] <= Cutoff
+        )
+
+// Format: #,0   Folder: 2 Time intelligence
+// Orders in the same period one year earlier (like-for-like).
+Orders PY =
+    -- Same period last year, cut at the last date with data, so Jan-Aug 2018
+    -- is compared with Jan-Aug 2017 rather than the whole of 2017.
+    VAR Cutoff = EDATE ( [Last Data Date], -12 )
+    RETURN
+        CALCULATE (
+            [Orders],
+            SAMEPERIODLASTYEAR ( DimDate[Date] ),
+            DimDate[Date] <= Cutoff
+        )
+
+// Format: 0.0%   Folder: 2 Time intelligence
+// Late Delivery Rate in the same period one year earlier (like-for-like).
+Late Delivery Rate PY =
+    -- Same period last year, cut at the last date with data, so Jan-Aug 2018
+    -- is compared with Jan-Aug 2017 rather than the whole of 2017.
+    VAR Cutoff = EDATE ( [Last Data Date], -12 )
+    RETURN
+        CALCULATE (
+            [Late Delivery Rate],
+            SAMEPERIODLASTYEAR ( DimDate[Date] ),
+            DimDate[Date] <= Cutoff
+        )
+
+// Format: 0.00   Folder: 2 Time intelligence
+// Avg Review Score in the same period one year earlier (like-for-like).
+Avg Review Score PY =
+    -- Same period last year, cut at the last date with data, so Jan-Aug 2018
+    -- is compared with Jan-Aug 2017 rather than the whole of 2017.
+    VAR Cutoff = EDATE ( [Last Data Date], -12 )
+    RETURN
+        CALCULATE (
+            [Avg Review Score],
+            SAMEPERIODLASTYEAR ( DimDate[Date] ),
+            DimDate[Date] <= Cutoff
+        )
+
+// Format: +0.0%;-0.0%;0.0%   Folder: 2 Time intelligence
+// Year-over-year change in revenue.
+Revenue YoY % = DIVIDE ( [Revenue] - [Revenue PY], [Revenue PY] )
+
+// Format: +0.0%;-0.0%;0.0%   Folder: 2 Time intelligence
+// Year-over-year change in orders.
+Orders YoY % = DIVIDE ( [Orders] - [Orders PY], [Orders PY] )
+
+// Format: +0.0" pp";-0.0" pp";0.0" pp"   Folder: 2 Time intelligence
+// Change in late rate vs last year, in percentage points (a rate is compared by subtraction, not division).
+Late Delivery Rate YoY (pp) =
+    -- Percentage points: 7.7% vs 3.5% is +4.2 pp (a rate is compared by subtraction, not division).
+    IF (
+        NOT ISBLANK ( [Late Delivery Rate PY] ),
+        ( [Late Delivery Rate] - [Late Delivery Rate PY] ) * 100
+    )
+
+// Format: +0.00;-0.00;0.00   Folder: 2 Time intelligence
+// Change in average review score vs last year.
+Avg Review Score YoY =
+    IF (
+        NOT ISBLANK ( [Avg Review Score PY] ),
+        [Avg Review Score] - [Avg Review Score PY]
+    )
+
+// Format: "R$" #,0   Folder: 2 Time intelligence
+// Revenue in the previous month.
+Revenue PM = CALCULATE ( [Revenue], DATEADD ( DimDate[Date], -1, MONTH ) )
+
+// Format: +0.0%;-0.0%;0.0%   Folder: 2 Time intelligence
+// Month-over-month change in revenue.
+Revenue MoM % = DIVIDE ( [Revenue] - [Revenue PM], [Revenue PM] )
+
+// Format: "R$" #,0   Folder: 2 Time intelligence
+// Revenue from 1 January to the end of the selected period.
+Revenue YTD = TOTALYTD ( [Revenue], DimDate[Date] )
+
+// Format: "R$" #,0   Folder: 2 Time intelligence
+// Revenue in the three months up to the end of the selected period. Smooths monthly noise.
+Revenue Rolling 3M =
+    CALCULATE (
+        [Revenue],
+        DATESINPERIOD ( DimDate[Date], MAX ( DimDate[Date] ), -3, MONTH )
+    )
+
+
+// ---------------------------------------------------------------- 3 Customers
+
+// Format: #,0   Folder: 3 Customers
+// Customers with two or more orders in the selected period.
+Repeat Customers =
+    -- Context transition: CALCULATE turns each customer row into a filter,
+    -- so DISTINCTCOUNT counts that customer's orders in the selected period.
+    COUNTROWS (
+        FILTER (
+            VALUES ( FactOrderItems[CustomerKey] ),
+            CALCULATE ( DISTINCTCOUNT ( FactOrderItems[OrderKey] ) ) > 1
+        )
+    )
+
+// Format: 0.0%   Folder: 3 Customers
+// Repeat Customers / Active Customers.
+Repeat Customer Rate = DIVIDE ( [Repeat Customers], [Active Customers] )
+
+// Format: #,0   Folder: 3 Customers
+// Customers whose first purchase falls in the selected period.
+New Customers =
+    CALCULATE (
+        DISTINCTCOUNT ( FactOrders[CustomerKey] ),
+        FactOrders[CustomerOrderNumber] = 1
+    )
+
+// Format: 0.0%   Folder: 3 Customers
+// Share of (non-canceled) orders placed by a customer who had bought before.
+Repeat Order Share = AVERAGE ( FactOrders[IsRepeatOrder] )
+
+
+// ---------------------------------------------------------------- 4 Delivery
+
+// Format: #,0   Folder: 4 Delivery
+// Every order placed, including canceled and unavailable ones.
+All Orders = COUNTROWS ( FactOrders )
+
+// Format: #,0   Folder: 4 Delivery
+// Orders with status canceled or unavailable.
+Canceled Orders = SUM ( FactOrders[IsCanceled] )
+
+// Format: 0.0%   Folder: 4 Delivery
+// Canceled Orders / All Orders.
+Cancellation Rate = DIVIDE ( [Canceled Orders], [All Orders] )
+
+// Format: #,0   Folder: 4 Delivery
+// Orders delivered to the customer (status delivered with a delivery date).
+Delivered Orders = SUM ( FactOrders[IsDelivered] )
+
+// Format: #,0   Folder: 4 Delivery
+// Delivered orders that arrived after the estimated delivery date.
+Late Orders = SUM ( FactOrders[IsLate] )
+
+// Format: 0.0%   Folder: 4 Delivery
+// Late Orders / Delivered Orders.
+Late Delivery Rate = DIVIDE ( [Late Orders], [Delivered Orders] )
+
+// Format: 0.0%   Folder: 4 Delivery
+// 1 - Late Delivery Rate.
+On-Time Delivery Rate = DIVIDE ( [Delivered Orders] - [Late Orders], [Delivered Orders] )
+
+// Format: 0.0   Folder: 4 Delivery
+// Average days from purchase to delivery.
+Avg Delivery Days = AVERAGE ( FactOrders[DeliveryDays] )
+
+// Format: 0.0   Folder: 4 Delivery
+// Average days between purchase and the estimated delivery date shown at checkout (delivered orders).
+Avg Promised Days = CALCULATE ( AVERAGE ( FactOrders[PromisedDays] ), FactOrders[IsDelivered] = 1 )
+
+// Format: +0.0;-0.0;0.0   Folder: 4 Delivery
+// Average of delivered date minus estimated date. Negative = arrived early.
+Avg Days vs Estimate = AVERAGE ( FactOrders[DelayDays] )
+
+// Format: 0.0   Folder: 4 Delivery
+// How late late orders are, on average.
+Avg Days Late (Late Orders) = CALCULATE ( AVERAGE ( FactOrders[DelayDays] ), FactOrders[IsLate] = 1 )
+
+// Format: #,0   Folder: 4 Delivery
+// Delivered orders counted by the date they arrived instead of the date they were bought.
+Orders Delivered (by Delivery Date) =
+    -- FactOrders has two dates linked to DimDate: OrderDate (active) and DeliveredDate (inactive).
+    -- USERELATIONSHIP switches to the delivery date for this measure only.
+    CALCULATE (
+        [Delivered Orders],
+        USERELATIONSHIP ( FactOrders[DeliveredDate], DimDate[Date] )
+    )
+
+
+// ---------------------------------------------------------------- 5 Satisfaction
+
+// Format: #,0   Folder: 5 Satisfaction
+// Orders with a review.
+Reviews = COUNT ( FactOrders[ReviewScore] )
+
+// Format: 0.00   Folder: 5 Satisfaction
+// Average 1-5 star score.
+Avg Review Score = AVERAGE ( FactOrders[ReviewScore] )
+
+// Format: 0.0%   Folder: 5 Satisfaction
+// Share of reviews with 1 or 2 stars.
+Bad Review Rate = AVERAGE ( FactOrders[IsBadReview] )
+
+// Format: 0.0%   Folder: 5 Satisfaction
+// Share of reviews with 5 stars.
+Five-Star Rate = DIVIDE ( CALCULATE ( [Reviews], FactOrders[ReviewScore] = 5 ), [Reviews] )
+
+// Format: 0.00   Folder: 5 Satisfaction
+// Average score of on-time orders.
+Avg Review - On Time = CALCULATE ( [Avg Review Score], FactOrders[DeliveryStatus] = "On time" )
+
+// Format: 0.00   Folder: 5 Satisfaction
+// Average score of late orders.
+Avg Review - Late = CALCULATE ( [Avg Review Score], FactOrders[DeliveryStatus] = "Late" )
+
+// Format: 0.00   Folder: 5 Satisfaction
+// How many stars a late delivery costs.
+Review Gap On Time vs Late = [Avg Review - On Time] - [Avg Review - Late]
+
+
+// ---------------------------------------------------------------- 6 Sellers and products
+
+// Format: 0   Folder: 6 Sellers and products
+// Rank of the seller by revenue within the current selection.
+Seller Revenue Rank =
+    IF (
+        HASONEVALUE ( DimSeller[SellerName] ),
+        -- ALLSELECTED ( DimSeller ) rather than one column: if the table visual also shows
+        -- State or City, the seller is still ranked against all selected sellers, not only its own state.
+        RANKX ( ALLSELECTED ( DimSeller ), [Revenue], , DESC, DENSE )
+    )
+
+// Format: 0.0%   Folder: 6 Sellers and products
+// Share of revenue generated by the top 10% of active sellers.
+Top 10% Sellers Revenue Share =
+    VAR SellerRevenue =
+        FILTER (
+            ADDCOLUMNS ( VALUES ( DimSeller[SellerKey] ), "@Revenue", [Revenue] ),
+            [@Revenue] > 0
+        )
+    VAR TopCount = ROUNDUP ( COUNTROWS ( SellerRevenue ) * 0.1, 0 )
+    VAR TopSellers = TOPN ( TopCount, SellerRevenue, [@Revenue], DESC )
+    RETURN
+        DIVIDE ( SUMX ( TopSellers, [@Revenue] ), SUMX ( SellerRevenue, [@Revenue] ) )
+
+// Format: 0.0%   Folder: 6 Sellers and products
+// Late Delivery Rate for orders containing the selected products or categories.
+Late Delivery Rate (Product View) =
+    -- DimProduct filters FactOrderItems only. TREATAS passes the filtered order keys
+    -- to FactOrders, so order-level KPIs can be sliced by product category.
+    CALCULATE (
+        [Late Delivery Rate],
+        TREATAS ( VALUES ( FactOrderItems[OrderKey] ), FactOrders[OrderKey] )
+    )
+
+// Format: 0.0%   Folder: 6 Sellers and products
+// Bad Review Rate for orders containing the selected products or categories.
+Bad Review Rate (Product View) =
+    -- DimProduct filters FactOrderItems only. TREATAS passes the filtered order keys
+    -- to FactOrders, so order-level KPIs can be sliced by product category.
+    CALCULATE (
+        [Bad Review Rate],
+        TREATAS ( VALUES ( FactOrderItems[OrderKey] ), FactOrders[OrderKey] )
+    )
+
+// Format: 0.00   Folder: 6 Sellers and products
+// Avg Review Score for orders containing the selected products or categories.
+Avg Review Score (Product View) =
+    -- DimProduct filters FactOrderItems only. TREATAS passes the filtered order keys
+    -- to FactOrders, so order-level KPIs can be sliced by product category.
+    CALCULATE (
+        [Avg Review Score],
+        TREATAS ( VALUES ( FactOrderItems[OrderKey] ), FactOrders[OrderKey] )
+    )
+
+
+// ---------------------------------------------------------------- 7 Delivery risk model
+
+// Format: #,0   Folder: 7 Delivery risk model
+// Test-period orders (Jun-Aug 2018) scored by the model.
+Scored Orders = COUNTROWS ( FactLateRiskScores )
+
+// Format: 0.0%   Folder: 7 Delivery risk model
+// Late rate among scored orders.
+Actual Late Rate (Scored) = AVERAGE ( FactLateRiskScores[ActualLate] )
+
+// Format: 0.0%   Folder: 7 Delivery risk model
+// Average model score (a relative risk score, see notebook 02).
+Avg Risk Score = AVERAGE ( FactLateRiskScores[LateRiskScore] )
+
+// Format: 0.0"x"   Folder: 7 Delivery risk model
+// How many times more often orders in this risk group are late than the average scored order.
+Late Rate Lift vs Average =
+    DIVIDE (
+        [Actual Late Rate (Scored)],
+        CALCULATE ( [Actual Late Rate (Scored)], REMOVEFILTERS ( FactLateRiskScores[RiskBand], FactLateRiskScores[RiskBandSort], FactLateRiskScores[RiskDecile] ) )
+    )
+
+// Format: 0.0%   Folder: 7 Delivery risk model
+// Share of all late orders that fall in the selected risk band or decile.
+Share of Late Orders Caught =
+    DIVIDE (
+        SUM ( FactLateRiskScores[ActualLate] ),
+        CALCULATE ( SUM ( FactLateRiskScores[ActualLate] ), REMOVEFILTERS ( FactLateRiskScores[RiskBand], FactLateRiskScores[RiskBandSort], FactLateRiskScores[RiskDecile] ) )
+    )
+
+// Format: 0.0%   Folder: 7 Delivery risk model
+// Gains-curve value for the current decile.
+Cumulative Late Orders Caught =
+    -- Gains curve: share of late orders caught when flagging deciles 1..N (riskiest first).
+    VAR CurrentDecile = MAX ( FactLateRiskScores[RiskDecile] )
+    RETURN
+        DIVIDE (
+            CALCULATE (
+                SUM ( FactLateRiskScores[ActualLate] ),
+                REMOVEFILTERS ( FactLateRiskScores[RiskBand], FactLateRiskScores[RiskBandSort], FactLateRiskScores[RiskDecile] ),
+                FactLateRiskScores[RiskDecile] <= CurrentDecile
+            ),
+            CALCULATE ( SUM ( FactLateRiskScores[ActualLate] ), REMOVEFILTERS ( FactLateRiskScores[RiskBand], FactLateRiskScores[RiskBandSort], FactLateRiskScores[RiskDecile] ) )
+        )
+
+
+// ---------------------------------------------------------------- 8 Labels
+
+// Format: (text)   Folder: 8 Labels
+// Text such as 'Jan 2017 - Aug 2018' for dynamic titles.
+Selected Period =
+    VAR FirstDate = CALCULATE ( MIN ( FactOrders[OrderDate] ) )
+    VAR LastDate = CALCULATE ( MAX ( FactOrders[OrderDate] ) )
+    RETURN
+        FORMAT ( FirstDate, "mmm yyyy" ) & " - " & FORMAT ( LastDate, "mmm yyyy" )
+
+// Format: (text)   Folder: 8 Labels
+// Subtitle text for the revenue card.
+Revenue YoY Label =
+    VAR Change = [Revenue YoY %]
+    RETURN
+        IF (
+            ISBLANK ( Change ),
+            "No prior-year data",
+            FORMAT ( Change, "+0.0%;-0.0%" ) & " vs same period last year"
+        )
+
+// Format: (text)   Folder: 8 Labels
+// Green up to 5% late, amber up to 10%, red above.
+Late Rate Color =
+    -- Used with conditional formatting (Format style: Field value).
+    SWITCH (
+        TRUE (),
+        ISBLANK ( [Late Delivery Rate] ), BLANK (),
+        [Late Delivery Rate] <= 0.05, "#0CA30C",
+        [Late Delivery Rate] <= 0.10, "#EDA100",
+        "#D03B3B"
+    )

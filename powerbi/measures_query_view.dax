@@ -1,0 +1,285 @@
+// =====================================================================
+// Paste this whole file into Power BI Desktop > DAX query view.
+// 1. Click 'Run' (or F5): the EVALUATE queries at the bottom return the KPI values,
+//    compare them with docs/kpi_expected_values.csv to validate the model.
+// 2. Click 'Update model with changes' to add every measure below to the _Measures table.
+//    (The _Measures table must already exist: Home > Enter data > name it _Measures > Load.)
+// =====================================================================
+DEFINE
+
+    // ---------------- 1 Sales
+    MEASURE '_Measures'[Revenue] = SUM ( FactOrderItems[Price] )
+    MEASURE '_Measures'[Freight Revenue] = SUM ( FactOrderItems[Freight] )
+    MEASURE '_Measures'[GMV] = [Revenue] + [Freight Revenue]
+    MEASURE '_Measures'[Orders] = DISTINCTCOUNT ( FactOrderItems[OrderKey] )
+    MEASURE '_Measures'[Items Sold] = COUNTROWS ( FactOrderItems )
+    MEASURE '_Measures'[Avg Order Value] = DIVIDE ( [Revenue], [Orders] )
+    MEASURE '_Measures'[Items per Order] = DIVIDE ( [Items Sold], [Orders] )
+    MEASURE '_Measures'[Freight % of Revenue] = DIVIDE ( [Freight Revenue], [Revenue] )
+    MEASURE '_Measures'[Active Customers] = DISTINCTCOUNT ( FactOrderItems[CustomerKey] )
+    MEASURE '_Measures'[Active Sellers] = DISTINCTCOUNT ( FactOrderItems[SellerKey] )
+    MEASURE '_Measures'[Revenue per Customer] = DIVIDE ( [Revenue], [Active Customers] )
+
+    // ---------------- 2 Time intelligence
+    MEASURE '_Measures'[Last Data Date] =
+        -- FactOrders also contains canceled orders, so its last date is the true end of the data (31 Aug 2018).
+        -- FactOrderItems stops on 29 Aug because the orders of 30-31 Aug were all canceled.
+        CALCULATE ( MAX ( FactOrders[OrderDate] ), REMOVEFILTERS () )
+    MEASURE '_Measures'[Revenue PY] =
+        -- Same period last year, cut at the last date with data, so Jan-Aug 2018
+        -- is compared with Jan-Aug 2017 rather than the whole of 2017.
+        VAR Cutoff = EDATE ( [Last Data Date], -12 )
+        RETURN
+            CALCULATE (
+                [Revenue],
+                SAMEPERIODLASTYEAR ( DimDate[Date] ),
+                DimDate[Date] <= Cutoff
+            )
+    MEASURE '_Measures'[Orders PY] =
+        -- Same period last year, cut at the last date with data, so Jan-Aug 2018
+        -- is compared with Jan-Aug 2017 rather than the whole of 2017.
+        VAR Cutoff = EDATE ( [Last Data Date], -12 )
+        RETURN
+            CALCULATE (
+                [Orders],
+                SAMEPERIODLASTYEAR ( DimDate[Date] ),
+                DimDate[Date] <= Cutoff
+            )
+    MEASURE '_Measures'[Late Delivery Rate PY] =
+        -- Same period last year, cut at the last date with data, so Jan-Aug 2018
+        -- is compared with Jan-Aug 2017 rather than the whole of 2017.
+        VAR Cutoff = EDATE ( [Last Data Date], -12 )
+        RETURN
+            CALCULATE (
+                [Late Delivery Rate],
+                SAMEPERIODLASTYEAR ( DimDate[Date] ),
+                DimDate[Date] <= Cutoff
+            )
+    MEASURE '_Measures'[Avg Review Score PY] =
+        -- Same period last year, cut at the last date with data, so Jan-Aug 2018
+        -- is compared with Jan-Aug 2017 rather than the whole of 2017.
+        VAR Cutoff = EDATE ( [Last Data Date], -12 )
+        RETURN
+            CALCULATE (
+                [Avg Review Score],
+                SAMEPERIODLASTYEAR ( DimDate[Date] ),
+                DimDate[Date] <= Cutoff
+            )
+    MEASURE '_Measures'[Revenue YoY %] = DIVIDE ( [Revenue] - [Revenue PY], [Revenue PY] )
+    MEASURE '_Measures'[Orders YoY %] = DIVIDE ( [Orders] - [Orders PY], [Orders PY] )
+    MEASURE '_Measures'[Late Delivery Rate YoY (pp)] =
+        -- Percentage points: 7.7% vs 3.5% is +4.2 pp (a rate is compared by subtraction, not division).
+        IF (
+            NOT ISBLANK ( [Late Delivery Rate PY] ),
+            ( [Late Delivery Rate] - [Late Delivery Rate PY] ) * 100
+        )
+    MEASURE '_Measures'[Avg Review Score YoY] =
+        IF (
+            NOT ISBLANK ( [Avg Review Score PY] ),
+            [Avg Review Score] - [Avg Review Score PY]
+        )
+    MEASURE '_Measures'[Revenue PM] = CALCULATE ( [Revenue], DATEADD ( DimDate[Date], -1, MONTH ) )
+    MEASURE '_Measures'[Revenue MoM %] = DIVIDE ( [Revenue] - [Revenue PM], [Revenue PM] )
+    MEASURE '_Measures'[Revenue YTD] = TOTALYTD ( [Revenue], DimDate[Date] )
+    MEASURE '_Measures'[Revenue Rolling 3M] =
+        CALCULATE (
+            [Revenue],
+            DATESINPERIOD ( DimDate[Date], MAX ( DimDate[Date] ), -3, MONTH )
+        )
+
+    // ---------------- 3 Customers
+    MEASURE '_Measures'[Repeat Customers] =
+        -- Context transition: CALCULATE turns each customer row into a filter,
+        -- so DISTINCTCOUNT counts that customer's orders in the selected period.
+        COUNTROWS (
+            FILTER (
+                VALUES ( FactOrderItems[CustomerKey] ),
+                CALCULATE ( DISTINCTCOUNT ( FactOrderItems[OrderKey] ) ) > 1
+            )
+        )
+    MEASURE '_Measures'[Repeat Customer Rate] = DIVIDE ( [Repeat Customers], [Active Customers] )
+    MEASURE '_Measures'[New Customers] =
+        CALCULATE (
+            DISTINCTCOUNT ( FactOrders[CustomerKey] ),
+            FactOrders[CustomerOrderNumber] = 1
+        )
+    MEASURE '_Measures'[Repeat Order Share] = AVERAGE ( FactOrders[IsRepeatOrder] )
+
+    // ---------------- 4 Delivery
+    MEASURE '_Measures'[All Orders] = COUNTROWS ( FactOrders )
+    MEASURE '_Measures'[Canceled Orders] = SUM ( FactOrders[IsCanceled] )
+    MEASURE '_Measures'[Cancellation Rate] = DIVIDE ( [Canceled Orders], [All Orders] )
+    MEASURE '_Measures'[Delivered Orders] = SUM ( FactOrders[IsDelivered] )
+    MEASURE '_Measures'[Late Orders] = SUM ( FactOrders[IsLate] )
+    MEASURE '_Measures'[Late Delivery Rate] = DIVIDE ( [Late Orders], [Delivered Orders] )
+    MEASURE '_Measures'[On-Time Delivery Rate] = DIVIDE ( [Delivered Orders] - [Late Orders], [Delivered Orders] )
+    MEASURE '_Measures'[Avg Delivery Days] = AVERAGE ( FactOrders[DeliveryDays] )
+    MEASURE '_Measures'[Avg Promised Days] = CALCULATE ( AVERAGE ( FactOrders[PromisedDays] ), FactOrders[IsDelivered] = 1 )
+    MEASURE '_Measures'[Avg Days vs Estimate] = AVERAGE ( FactOrders[DelayDays] )
+    MEASURE '_Measures'[Avg Days Late (Late Orders)] = CALCULATE ( AVERAGE ( FactOrders[DelayDays] ), FactOrders[IsLate] = 1 )
+    MEASURE '_Measures'[Orders Delivered (by Delivery Date)] =
+        -- FactOrders has two dates linked to DimDate: OrderDate (active) and DeliveredDate (inactive).
+        -- USERELATIONSHIP switches to the delivery date for this measure only.
+        CALCULATE (
+            [Delivered Orders],
+            USERELATIONSHIP ( FactOrders[DeliveredDate], DimDate[Date] )
+        )
+
+    // ---------------- 5 Satisfaction
+    MEASURE '_Measures'[Reviews] = COUNT ( FactOrders[ReviewScore] )
+    MEASURE '_Measures'[Avg Review Score] = AVERAGE ( FactOrders[ReviewScore] )
+    MEASURE '_Measures'[Bad Review Rate] = AVERAGE ( FactOrders[IsBadReview] )
+    MEASURE '_Measures'[Five-Star Rate] = DIVIDE ( CALCULATE ( [Reviews], FactOrders[ReviewScore] = 5 ), [Reviews] )
+    MEASURE '_Measures'[Avg Review - On Time] = CALCULATE ( [Avg Review Score], FactOrders[DeliveryStatus] = "On time" )
+    MEASURE '_Measures'[Avg Review - Late] = CALCULATE ( [Avg Review Score], FactOrders[DeliveryStatus] = "Late" )
+    MEASURE '_Measures'[Review Gap On Time vs Late] = [Avg Review - On Time] - [Avg Review - Late]
+
+    // ---------------- 6 Sellers and products
+    MEASURE '_Measures'[Seller Revenue Rank] =
+        IF (
+            HASONEVALUE ( DimSeller[SellerName] ),
+            -- ALLSELECTED ( DimSeller ) rather than one column: if the table visual also shows
+            -- State or City, the seller is still ranked against all selected sellers, not only its own state.
+            RANKX ( ALLSELECTED ( DimSeller ), [Revenue], , DESC, DENSE )
+        )
+    MEASURE '_Measures'[Top 10% Sellers Revenue Share] =
+        VAR SellerRevenue =
+            FILTER (
+                ADDCOLUMNS ( VALUES ( DimSeller[SellerKey] ), "@Revenue", [Revenue] ),
+                [@Revenue] > 0
+            )
+        VAR TopCount = ROUNDUP ( COUNTROWS ( SellerRevenue ) * 0.1, 0 )
+        VAR TopSellers = TOPN ( TopCount, SellerRevenue, [@Revenue], DESC )
+        RETURN
+            DIVIDE ( SUMX ( TopSellers, [@Revenue] ), SUMX ( SellerRevenue, [@Revenue] ) )
+    MEASURE '_Measures'[Late Delivery Rate (Product View)] =
+        -- DimProduct filters FactOrderItems only. TREATAS passes the filtered order keys
+        -- to FactOrders, so order-level KPIs can be sliced by product category.
+        CALCULATE (
+            [Late Delivery Rate],
+            TREATAS ( VALUES ( FactOrderItems[OrderKey] ), FactOrders[OrderKey] )
+        )
+    MEASURE '_Measures'[Bad Review Rate (Product View)] =
+        -- DimProduct filters FactOrderItems only. TREATAS passes the filtered order keys
+        -- to FactOrders, so order-level KPIs can be sliced by product category.
+        CALCULATE (
+            [Bad Review Rate],
+            TREATAS ( VALUES ( FactOrderItems[OrderKey] ), FactOrders[OrderKey] )
+        )
+    MEASURE '_Measures'[Avg Review Score (Product View)] =
+        -- DimProduct filters FactOrderItems only. TREATAS passes the filtered order keys
+        -- to FactOrders, so order-level KPIs can be sliced by product category.
+        CALCULATE (
+            [Avg Review Score],
+            TREATAS ( VALUES ( FactOrderItems[OrderKey] ), FactOrders[OrderKey] )
+        )
+
+    // ---------------- 7 Delivery risk model
+    MEASURE '_Measures'[Scored Orders] = COUNTROWS ( FactLateRiskScores )
+    MEASURE '_Measures'[Actual Late Rate (Scored)] = AVERAGE ( FactLateRiskScores[ActualLate] )
+    MEASURE '_Measures'[Avg Risk Score] = AVERAGE ( FactLateRiskScores[LateRiskScore] )
+    MEASURE '_Measures'[Late Rate Lift vs Average] =
+        DIVIDE (
+            [Actual Late Rate (Scored)],
+            CALCULATE ( [Actual Late Rate (Scored)], REMOVEFILTERS ( FactLateRiskScores[RiskBand], FactLateRiskScores[RiskBandSort], FactLateRiskScores[RiskDecile] ) )
+        )
+    MEASURE '_Measures'[Share of Late Orders Caught] =
+        DIVIDE (
+            SUM ( FactLateRiskScores[ActualLate] ),
+            CALCULATE ( SUM ( FactLateRiskScores[ActualLate] ), REMOVEFILTERS ( FactLateRiskScores[RiskBand], FactLateRiskScores[RiskBandSort], FactLateRiskScores[RiskDecile] ) )
+        )
+    MEASURE '_Measures'[Cumulative Late Orders Caught] =
+        -- Gains curve: share of late orders caught when flagging deciles 1..N (riskiest first).
+        VAR CurrentDecile = MAX ( FactLateRiskScores[RiskDecile] )
+        RETURN
+            DIVIDE (
+                CALCULATE (
+                    SUM ( FactLateRiskScores[ActualLate] ),
+                    REMOVEFILTERS ( FactLateRiskScores[RiskBand], FactLateRiskScores[RiskBandSort], FactLateRiskScores[RiskDecile] ),
+                    FactLateRiskScores[RiskDecile] <= CurrentDecile
+                ),
+                CALCULATE ( SUM ( FactLateRiskScores[ActualLate] ), REMOVEFILTERS ( FactLateRiskScores[RiskBand], FactLateRiskScores[RiskBandSort], FactLateRiskScores[RiskDecile] ) )
+            )
+
+    // ---------------- 8 Labels
+    MEASURE '_Measures'[Selected Period] =
+        VAR FirstDate = CALCULATE ( MIN ( FactOrders[OrderDate] ) )
+        VAR LastDate = CALCULATE ( MAX ( FactOrders[OrderDate] ) )
+        RETURN
+            FORMAT ( FirstDate, "mmm yyyy" ) & " - " & FORMAT ( LastDate, "mmm yyyy" )
+    MEASURE '_Measures'[Revenue YoY Label] =
+        VAR Change = [Revenue YoY %]
+        RETURN
+            IF (
+                ISBLANK ( Change ),
+                "No prior-year data",
+                FORMAT ( Change, "+0.0%;-0.0%" ) & " vs same period last year"
+            )
+    MEASURE '_Measures'[Late Rate Color] =
+        -- Used with conditional formatting (Format style: Field value).
+        SWITCH (
+            TRUE (),
+            ISBLANK ( [Late Delivery Rate] ), BLANK (),
+            [Late Delivery Rate] <= 0.05, "#0CA30C",
+            [Late Delivery Rate] <= 0.10, "#EDA100",
+            "#D03B3B"
+        )
+
+// ---------------- Validation 1: all data (Jan 2017 - Aug 2018)
+EVALUATE
+    ROW (
+        "Revenue", [Revenue],
+        "Freight Revenue", [Freight Revenue],
+        "GMV", [GMV],
+        "Orders", [Orders],
+        "Items Sold", [Items Sold],
+        "Avg Order Value", [Avg Order Value],
+        "Items per Order", [Items per Order],
+        "Freight % of Revenue", [Freight % of Revenue],
+        "Active Customers", [Active Customers],
+        "Active Sellers", [Active Sellers],
+        "Repeat Customer Rate", [Repeat Customer Rate],
+        "Cancellation Rate", [Cancellation Rate],
+        "Delivered Orders", [Delivered Orders],
+        "Late Delivery Rate", [Late Delivery Rate],
+        "On-Time Delivery Rate", [On-Time Delivery Rate],
+        "Avg Delivery Days", [Avg Delivery Days],
+        "Avg Review Score", [Avg Review Score],
+        "Bad Review Rate", [Bad Review Rate],
+        "Top 10% Sellers Revenue Share", [Top 10% Sellers Revenue Share]
+    )
+
+// ---------------- Validation 2: Jan-Aug of each year (like-for-like YoY)
+EVALUATE
+    SUMMARIZECOLUMNS (
+        DimDate[Year],
+        TREATAS ( { 1, 2, 3, 4, 5, 6, 7, 8 }, DimDate[MonthNumber] ),
+        "Revenue", [Revenue],
+        "Revenue PY", [Revenue PY],
+        "Revenue YoY %", [Revenue YoY %],
+        "Orders", [Orders],
+        "Orders PY", [Orders PY],
+        "Orders YoY %", [Orders YoY %],
+        "Avg Order Value", [Avg Order Value],
+        "Active Customers", [Active Customers],
+        "Active Sellers", [Active Sellers],
+        "Repeat Customer Rate", [Repeat Customer Rate],
+        "Cancellation Rate", [Cancellation Rate],
+        "Late Delivery Rate", [Late Delivery Rate],
+        "Late Delivery Rate PY", [Late Delivery Rate PY],
+        "Late Delivery Rate YoY (pp)", [Late Delivery Rate YoY (pp)],
+        "Avg Review Score", [Avg Review Score],
+        "Bad Review Rate", [Bad Review Rate],
+        "Top 10% Sellers Revenue Share", [Top 10% Sellers Revenue Share]
+    )
+
+// ---------------- Validation 3: model risk bands (test period)
+EVALUATE
+    SUMMARIZECOLUMNS (
+        FactLateRiskScores[RiskBandSort],
+        FactLateRiskScores[RiskBand],
+        "Scored Orders", [Scored Orders],
+        "Actual Late Rate", [Actual Late Rate (Scored)],
+        "Share of Late Orders Caught", [Share of Late Orders Caught]
+    )
+    ORDER BY FactLateRiskScores[RiskBandSort]

@@ -1,0 +1,62 @@
+{
+  "periods": {
+    "train": "2017-01-01 to 2018-03-31",
+    "validation": "2018-04-01 to 2018-05-31",
+    "test": "2018-06-01 to 2018-08-31"
+  },
+  "test_orders": 18603,
+  "test_late_orders": 672,
+  "test_late_rate": 0.0361,
+  "validation": {
+    "Direct classifier": {
+      "ROC-AUC": 0.6991,
+      "PR-AUC": 0.1361,
+      "Late orders caught in top 10%": 0.279,
+      "Lift in top 10%": 2.7904
+    },
+    "Rule of thumb": {
+      "ROC-AUC": 0.6908,
+      "PR-AUC": 0.1097,
+      "Late orders caught in top 10%": 0.247,
+      "Lift in top 10%": 2.47
+    },
+    "Two-stage model": {
+      "ROC-AUC": 0.7661,
+      "PR-AUC": 0.1715,
+      "Late orders caught in top 10%": 0.3338,
+      "Lift in top 10%": 3.3378
+    }
+  },
+  "test": {
+    "Direct classifier": {
+      "ROC-AUC": 0.4659,
+      "PR-AUC": 0.0443,
+      "Late orders caught in top 10%": 0.1324,
+      "Lift in top 10%": 1.3244
+    },
+    "Rule of thumb": {
+      "ROC-AUC": 0.7685,
+      "PR-AUC": 0.1285,
+      "Late orders caught in top 10%": 0.4048,
+      "Lift in top 10%": 4.0476
+    },
+    "Two-stage model": {
+      "ROC-AUC": 0.7396,
+      "PR-AUC": 0.1263,
+      "Late orders caught in top 10%": 0.3512,
+      "Lift in top 10%": 3.5119
+    }
+  },
+  "stage1_trees": 101,
+  "stage1_test_mae_days": 4.83,
+  "naive_test_mae_days": 5.19,
+  "top_delivery_time_drivers": [
+    "DistanceKm",
+    "FreightValue",
+    "MainCategory",
+    "SameState",
+    "DayOfWeek"
+  ],
+  "flagged_top10_orders": 1860,
+  "flagged_top10_late_caught": 236
+}
